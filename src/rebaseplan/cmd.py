@@ -55,6 +55,7 @@ def is_command(k):
 
 def main():
     args = docopt.docopt(__doc__, version=__version__)
+    #print(args)
     command = [k for k,v in args.items() if k[0] not in "<-" and v]
     if not command:
         args["show"] = True
