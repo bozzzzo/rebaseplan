@@ -48,6 +48,7 @@ def tag_last_branches(*, pattern, branch_flags, main):
     branches = list(list_branches(pattern=pattern, branch_flags=branch_flags))
     tags = []
     bases = set()
+    last_bases = set()
     for branch in branches:
         log = list(head_reflog(branch, 2))
         if len(log) < 2:
@@ -57,11 +58,15 @@ def tag_last_branches(*, pattern, branch_flags, main):
         tags.append(tag)
         subprocess.run(["git", "tag", "-f", tag, last_sha], check=True)
         bases.add(merge_base(branch, main))
-        bases.add(merge_base(tag, main))
+        last_bases.add(merge_base(tag, main))
 
     base_tags = []
     for i, base_sha in enumerate(bases):
         base_tag = f"rebase/last/__base__/{i}"
+        base_tags.append(base_tag)
+        subprocess.run(["git", "tag", "-f", base_tag, base_sha], check=True)
+    for i, base_sha in enumerate(last_bases):
+        base_tag = f"rebase/last/__last_base__/{i}"
         base_tags.append(base_tag)
         subprocess.run(["git", "tag", "-f", base_tag, base_sha], check=True)
 
