@@ -50,6 +50,13 @@ def compose_flags(*funcs):
 def all_branches(*flags):
     return flags + ("--all", )
 
+
+def additional_flags(*additional):
+    def additional_flags(*flags):
+        return flags + additional
+    return additional_flags
+
+
 def is_command(k):
     return k[0] not in "<-"
 
@@ -61,12 +68,15 @@ def main():
         args["show"] = True
     if args["show"]:
         rebaseplan(
-            pattern = args["--pattern"],
-            branch_flags = all_branches if args["--all"] else no_extra_flags,
-            view = gitk_view if args["--view"] else text_view,
-            optional_log_flags = compose_flags(
-                no_extra_flags if args["--verbose"] else dense_log,
-                no_extra_flags if args["--all"] else no_remote_branches(args["--upstream"])),
+            pattern=args["--pattern"],
+            branch_flags=all_branches if args["--all"] else no_extra_flags,
+            view=gitk_view if args["--view"] else text_view,
+            optional_log_flags=compose_flags(
+                (no_extra_flags if args["--verbose"] else dense_log),
+                (no_extra_flags if args["--all"]
+                 else no_remote_branches(args["--upstream"])),
+                additional_flags(*args["<log-options>"]),
+            ),
             main=args["--main"],
             origin=args["--upstream"]
         )
