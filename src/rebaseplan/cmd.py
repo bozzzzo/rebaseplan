@@ -17,7 +17,7 @@ Options:
   -h --help            Show help.
   --version            Print version.
   -v --verbose         Show also individual commits.
-  --pattern=<pat>      Pattern for matching branches [default: *feature/CORE-130*].
+  --pattern=<pat>      Pattern for matching branches [default: */CORE-130*].
   -a --all             List all branches
   --view               Show with gitk.
   --main=<branch>      Name of final destination branch [default: develop].
@@ -33,21 +33,26 @@ from .rebaseplan import rebaseplan, remove_old_tags
 from .rebaseplan import run_command, display_command
 from .rebaseplan import __version__
 
+
 def no_extra_flags(*flags):
     return flags
 
+
 def dense_log(*flags):
     return flags + ("--simplify-by-decoration", )
+
 
 def no_remote_branches(origin):
     def filter_origin(*flags):
         return flags + (f"--decorate-refs-exclude=remotes/{origin}/*", )
     return filter_origin
 
+
 def compose_flags(*funcs):
     def composer(*flags):
         return functools.reduce(lambda x, func: func(*x), funcs, flags)
     return composer
+
 
 def all_branches(*flags):
     return flags + ("--all", )
@@ -62,10 +67,11 @@ def additional_flags(*additional):
 def is_command(k):
     return k[0] not in "<-"
 
+
 def main():
     args = docopt.docopt(__doc__, version=__version__)
-    #print(args)
-    command = [k for k,v in args.items() if k[0] not in "<-" and v]
+    # print(args)
+    command = [k for k, v in args.items() if k[0] not in "<-" and v]
     if not command:
         args["show"] = True
     run = run_command if not args["--show-cmdline"] else display_command

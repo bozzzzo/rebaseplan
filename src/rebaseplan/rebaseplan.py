@@ -1,4 +1,3 @@
-# git log --pretty="%D (%an) %s" --simplify-by-decoration $(git branch -a --list '*feature/CORE-130*' | sed -e 's|..\(remotes/\)*\(.*\)|\2 \2@{1}|') ^develop^
 import subprocess
 import shlex
 
@@ -15,6 +14,7 @@ def list_branches(*, pattern, branch_flags):
         text=True, capture_output=True, check=True)
     return [b[2:] for b in cmd.stdout.splitlines()]
 
+
 def head_reflog(branch, n):
     cmd = subprocess.run(
         ["git", "reflog", "show", branch],
@@ -23,6 +23,7 @@ def head_reflog(branch, n):
     for ref in cmd.stdout.splitlines()[1:n]:
         _, ref, _ = ref.split(maxsplit=2)
         yield ref.rstrip(':')
+
 
 def branches_with_reflogs(*, pattern, n, branch_flags):
     for branch in list_branches(pattern=pattern, branch_flags=branch_flags):
@@ -45,6 +46,7 @@ def merge_base(*refs):
     cmd = subprocess.run(["git", "merge-base"] + list(refs),
                          text=True, capture_output=True, check=True)
     return cmd.stdout.strip()
+
 
 def tag_last_branches(*, pattern, branch_flags, main):
     remove_old_tags(run=run_command)
@@ -75,8 +77,10 @@ def tag_last_branches(*, pattern, branch_flags, main):
 
     return branches, tags, base_tags
 
+
 def no_optional_flags(*flags):
     return flags
+
 
 def text_view(optional_flags):
     return ["git", "log"] + list(optional_flags("--oneline", "--decorate",
@@ -95,6 +99,7 @@ def run_command(args, **kwargs):
 def display_command(args, **kwargs):
     print(" ".join(map(shlex.quote, args)))
 
+
 def rebaseplan(*, pattern,
                branch_flags=no_optional_flags,
                view=text_view,
@@ -102,7 +107,9 @@ def rebaseplan(*, pattern,
                main="develop",
                origin="origin",
                run=run_command):
-    branches, tags, base_tags = tag_last_branches(pattern=pattern, branch_flags=branch_flags, main=main)
+    branches, tags, base_tags = tag_last_branches(pattern=pattern,
+                                                  branch_flags=branch_flags,
+                                                  main=main)
     args = (view(optional_log_flags)
             + [f"^{main}^", f"^{origin}/{main}^"]
             + branches
