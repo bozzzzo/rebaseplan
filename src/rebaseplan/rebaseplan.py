@@ -71,10 +71,14 @@ def no_optional_flags(*flags):
     return flags
 
 def text_view(optional_flags):
-    return ["git", "log"] + list(optional_flags("--oneline", "--decorate", "--color", "--graph"))
+    return ["git", "log"] + list(optional_flags("--oneline", "--decorate",
+                                                "--color", "--graph",
+                                                "--boundary"))
+
 
 def gitk_view(optional_flags):
-    return ["gitk"] + list(optional_flags())
+    return ["gitk"] + list(optional_flags("--boundary"))
+
 
 def rebaseplan(*, pattern,
                branch_flags=no_optional_flags,
