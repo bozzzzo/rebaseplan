@@ -1,5 +1,6 @@
 # git log --pretty="%D (%an) %s" --simplify-by-decoration $(git branch -a --list '*feature/CORE-130*' | sed -e 's|..\(remotes/\)*\(.*\)|\2 \2@{1}|') ^develop^
 import subprocess
+import shlex
 
 import importlib_metadata
 
@@ -27,16 +28,18 @@ def branches_with_reflogs(*, pattern, n, branch_flags):
     for branch in list_branches(pattern=pattern, branch_flags=branch_flags):
         yield from head_reflog(branch, n)
 
-def remove_old_tags():
+
+def remove_old_tags(*, run):
     cmd = subprocess.run(
-        ["git", "for-each-ref", "refs/tags/rebase/last/", "--format=%(refname:short)"],
+        ["git", "for-each-ref", "refs/tags/rebase/last/",
+         "--format=%(refname:short)"],
         text=True, capture_output=True, check=True)
     old_tags = cmd.stdout.splitlines()
     if not old_tags:
         return
-    cmd = subprocess.run(
-        ["git", "tag", "-d"] + list(old_tags),
-        text=True, capture_output=True, check=True)
+    args = ["git", "tag", "-d"] + list(old_tags)
+    run(args, text=True, capture_output=True, check=True)
+
 
 def merge_base(*refs):
     cmd = subprocess.run(["git", "merge-base"] + list(refs),
@@ -44,7 +47,7 @@ def merge_base(*refs):
     return cmd.stdout.strip()
 
 def tag_last_branches(*, pattern, branch_flags, main):
-    remove_old_tags()
+    remove_old_tags(run=run_command)
     branches = list(list_branches(pattern=pattern, branch_flags=branch_flags))
     tags = []
     bases = set()
@@ -85,16 +88,23 @@ def gitk_view(optional_flags):
     return ["gitk"] + list(optional_flags("--boundary"))
 
 
+def run_command(args, **kwargs):
+    subprocess.run(args, **kwargs)
+
+
+def display_command(args, **kwargs):
+    print(" ".join(map(shlex.quote, args)))
+
 def rebaseplan(*, pattern,
                branch_flags=no_optional_flags,
                view=text_view,
                optional_log_flags=no_optional_flags,
                main="develop",
-               origin="origin"):
+               origin="origin",
+               run=run_command):
     branches, tags, base_tags = tag_last_branches(pattern=pattern, branch_flags=branch_flags, main=main)
     args = (view(optional_log_flags)
             + [f"^{main}^", f"^{origin}/{main}^"]
             + branches
             )
-    cmd = subprocess.run(args, check=True)
-
+    run(args, check=True)

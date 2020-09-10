@@ -22,6 +22,7 @@ Options:
   --view               Show with gitk.
   --main=<branch>      Name of final destination branch [default: develop].
   --upstream=<remote>  Name of remote [default: origin].
+  --show-cmdline       Print out commandline to run instead of invoking it.
 """
 
 import docopt
@@ -29,6 +30,7 @@ import functools
 
 from .rebaseplan import text_view, gitk_view
 from .rebaseplan import rebaseplan, remove_old_tags
+from .rebaseplan import run_command, display_command
 from .rebaseplan import __version__
 
 def no_extra_flags(*flags):
@@ -66,6 +68,7 @@ def main():
     command = [k for k,v in args.items() if k[0] not in "<-" and v]
     if not command:
         args["show"] = True
+    run = run_command if not args["--show-cmdline"] else display_command
     if args["show"]:
         rebaseplan(
             pattern=args["--pattern"],
@@ -78,8 +81,9 @@ def main():
                 additional_flags(*args["<log-options>"]),
             ),
             main=args["--main"],
-            origin=args["--upstream"]
+            origin=args["--upstream"],
+            run=run,
         )
     elif args["cleanup"]:
-        remove_old_tags()
-
+        remove_old_tags(
+            run=run)
