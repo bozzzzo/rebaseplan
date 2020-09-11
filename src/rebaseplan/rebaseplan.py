@@ -70,7 +70,7 @@ def tag_last_branches(*, pattern, branch_flags, main):
         base_tag = f"rebase/last/__base__/{i}"
         base_tags.append(base_tag)
         subprocess.run(["git", "tag", "-f", base_tag, base_sha], check=True)
-    for i, base_sha in enumerate(last_bases):
+    for i, base_sha in enumerate(last_bases - bases):
         base_tag = f"rebase/last/__last_base__/{i}"
         base_tags.append(base_tag)
         subprocess.run(["git", "tag", "-f", base_tag, base_sha], check=True)
