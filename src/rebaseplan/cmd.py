@@ -6,6 +6,7 @@ Usage:
   rebaseplan cleanup
   rebaseplan propagate-notes [options] <notes-ref>...
   rebaseplan sync-local [options]
+  rebaseplan sync-remote [options]
 
 
 Commands:
@@ -24,20 +25,19 @@ Commands:
 
 
 Options:
-  -h --help            Show help.
-  --version            Print version.
-  -v --verbose         Show also individual commits.
-  --pattern=<pat>      Pattern for matching branches [default: */CORE-130*].
-  -a --all             List all branches
-  -n --dry-run         Do not really do stuff
-  --view               Show with gitk.
-  --main=<branch>      Name of final destination branch [default: develop].
-  --upstream=<remote>  Name of remote [default: origin].
-  --show-cmdline       Print out commandline to run instead of invoking it.
-  --reflog-depth=N     How many reflog entries to tag so they show up in the
-                       graph [default: 10]
-  -f --force           Overwrite current notes with old ones
-
+  -h --help                Show help.
+  --version                Print version.
+  -v --verbose             Show also individual commits.
+  --pattern=<pat>          Pattern for matching branches [default: */CORE-130*].
+  -a --all                 List all branches
+  -n --max-count=<number>  Number of rows to list (passed to git log)
+  --view                   Show with gitk.
+  --main=<branch>          Name of final destination branch [default: develop].
+  --upstream=<remote>      Name of remote [default: origin].
+  --show-cmdline           Print out commandline to run instead of invoking it.
+  --reflog-depth=N         How many reflog entries to tag so they show up in the
+                           graph [default: 10]
+  -f --force               Overwrite current notes with old ones
 """
 
 import docopt
@@ -45,7 +45,7 @@ import functools
 
 from .rebaseplan import text_view, gitk_view
 from .rebaseplan import all_branches, no_extra_flags, compose_flags, additional_flags
-from .rebaseplan import rebaseplan, remove_old_tags, propagate_notes, sync_local
+from .rebaseplan import rebaseplan, remove_old_tags, propagate_notes, sync_local, sync_remote
 from .rebaseplan import run_command, display_command
 from .rebaseplan import __version__
 
@@ -59,6 +59,19 @@ def no_remote_branches(upstream):
         return flags + (f"--decorate-refs-exclude=remotes/{upstream}/*", )
     return filter_upstream
 
+def passtrough(args, *flags):
+    def read_flags():
+        for flag in flags:
+            value = args[flag]
+            if value is None or isinstance(value, bool):
+                if value:
+                    yield flag
+            else:
+                for v in value if isinstance(value, (tuple, list)) else [value]:
+                    yield flag
+                    yield v
+    x = tuple(read_flags())
+    return additional_flags(*x)
 
 def is_command(k):
     return k[0] not in "<-"
@@ -84,6 +97,7 @@ def main():
                 (no_extra_flags if args["--all"]
                  else no_remote_branches(args["--upstream"])),
                 additional_flags(*args["<log-options>"]),
+                passtrough(args, "--max-count"),
             ),
             main=args["--main"],
             upstream=args["--upstream"],
@@ -107,7 +121,15 @@ def main():
             main=args["--main"],
             upstream=args["--upstream"],
             verbose=args["--verbose"],
-            dry_run=args["--dry-run"]
+            dry_run=not args["--force"]
+        )
+    elif args["sync-remote"]:
+        sync_remote(
+            pattern=args["--pattern"] + [args["--main"]],
+            main=args["--main"],
+            upstream=args["--upstream"],
+            verbose=args["--verbose"],
+            dry_run=not args["--force"]
         )
     else:
         raise Exception(f"Unhandled command '{command}'")

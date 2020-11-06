@@ -5,10 +5,14 @@ import itertools
 import shlex
 import subprocess
 import sys
+import typing
+import enum
 
 import importlib_metadata
 
+
 __version__ = importlib_metadata.version('rebaseplan')
+
 
 def subprocess_run(args, **kwargs):
     if kwargs.pop("dry_run", False):
@@ -164,21 +168,25 @@ def rebaseplan(*, pattern,
     run(args, check=True)
 
 
-Latest = collections.namedtuple("Latest", "commit_id, reflog_name, current_branch")
+ReflogEntry = collections.namedtuple("ReflogEntry", "commit_id, reflog_name, current_branch, i")
 class branch_reflog:
     def __init__(self, branch):
         cmd = subprocess_run(
             ["git", "reflog", "show", "--date=iso", "--pretty=format:%H %gd", branch],
             text=True, capture_output=True, check=True)
         self.branch = branch
-        self.reflog = tuple(tuple(ref.split(maxsplit=1)) for ref in cmd.stdout.splitlines())
+        self.reflog = tuple(ReflogEntry(*ref.split(maxsplit=1), not i, i) for i, ref in enumerate(cmd.stdout.splitlines()))
 
     def latest_of(self, commit_ids):
         """returns a (full_commit_id, reflog_name, current_branch_flag)"""
-        for i, (commit_id, reflog_name) in enumerate(self.reflog):
-            if commit_id in commit_ids:
-                return Latest(commit_id, reflog_name, not i)
+        for entry in self.reflog:
+            if entry.commit_id in commit_ids:
+                return entry
         return None
+
+    @property
+    def commit_ids(self):
+        return tuple(entry.commit_id for entry in self.reflog)
 
 
 def notes_map(notes_ref):
@@ -261,15 +269,25 @@ def fetch(*, upstream, dry_run):
     args = (["git", "fetch", upstream, "--prune"])
     subprocess_run(args, check=True, dry_run=dry_run)
 
-def sync_local(*, pattern, main,  upstream, verbose=False, dry_run=False):
-    fetch(upstream=upstream, dry_run=dry_run)
 
-    new=[]
-    unrelated=[]
-    uptodate=[]
-    stale=[]
-    modified=[]
+class BranchSyncStatus(enum.IntEnum):
+    NEW_LOCAL = enum.auto()
+    UNRELATED = enum.auto()
+    UPTODATE = enum.auto()
+    REMOTE_MODIFIED = enum.auto()
+    LOCAL_MODIFIED = enum.auto()
+    CONFLICTED = enum.auto()
 
+
+class BranchSyncState(typing.NamedTuple):
+    status: BranchSyncStatus
+    local_branch: str
+    remote_branch: str
+    local_reflog: ReflogEntry = None
+    remote_reflog: ReflogEntry = None
+
+
+def branch_sync_state(*, pattern, main,  upstream):
     for remote_branch in filter(
             lambda branch: branch.startswith(f"{upstream}/"),
             list_branches(pattern=pattern,
@@ -277,59 +295,86 @@ def sync_local(*, pattern, main,  upstream, verbose=False, dry_run=False):
                               remote_branches,
                               additional_flags("--no-merged", main)))):
         local_branch = remote_branch[len(upstream)+1:]
+        state = BranchSyncState(None,
+                local_branch=local_branch,
+                remote_branch=remote_branch)
+
         if not branch_exists(local_branch):
-            new.append(dict(
-                local_branch=local_branch,
-                remote_branch=remote_branch))
+            yield state._replace(status=BranchSyncStatus.NEW_LOCAL)
             continue
-        result = branch_reflog(remote_branch).latest_of(ref_sha(local_branch))
-        if result is None:
-            result = branch_reflog(local_branch).latest_of(ref_sha(remote_branch))
-            if result is None:
-                unrelated.append(dict(
-                    local_branch=local_branch,
-                    remote_branch=remote_branch))
-            else:
-                modified.append(dict(
-                    local_branch=local_branch,
-                    remote_branch=remote_branch,
-                    result=result.reflog_name))
-        elif result.current_branch:
-            uptodate.append(dict(
-                local_branch=local_branch,
-                remote_branch=remote_branch))
+
+        remote_reflog = branch_reflog(remote_branch)
+        local_reflog = branch_reflog(local_branch)
+        state = state._replace(
+            remote_reflog=remote_reflog.latest_of(ref_sha(local_branch)),
+            local_reflog=local_reflog.latest_of(ref_sha(remote_branch)))
+
+        if state.remote_reflog is not None and state.remote_reflog.current_branch:
+            yield state._replace(status=BranchSyncStatus.UPTODATE)
+        elif state.remote_reflog is not None:
+            yield state._replace(status=BranchSyncStatus.REMOTE_MODIFIED)
+        elif state.local_reflog is not None:
+            yield state._replace(status=BranchSyncStatus.LOCAL_MODIFIED)
         else:
-            stale.append(dict(
-                result=result.reflog_name,
-                local_branch=local_branch,
-                remote_branch=remote_branch))
+            state = state._replace(
+                remote_reflog=remote_reflog.latest_of(local_reflog.commit_ids),
+                local_reflog=local_reflog.latest_of(remote_reflog.commit_ids))
 
+            if state.remote_reflog is None and state.local_reflog is None:
+                yield state._replace(status=BranchSyncStatus.UNRELATED)
+            else:
+                yield state._replace(status=BranchSyncStatus.CONFLICTED)
+
+
+def sync_local(*, pattern, main,  upstream, verbose=False, dry_run=False):
     with retain_current_branch(dry_run=dry_run):
-        for u in uptodate:
-            print("Up to date:", u["local_branch"])
+        fetch(upstream=upstream, dry_run=dry_run)
 
-        if unrelated:
-            print()
-        for u in unrelated:
-            print("Unrelated:", u["local_branch"], u["remote_branch"])
+        last_status = None
+        for state in sorted(branch_sync_state(pattern=pattern, main=main, upstream=upstream)):
+            if last_status != state.status:
+                print()
+                last_status = state.status
 
-        if new:
-            print()
-        for n in new:
-            print("New: ", n["local_branch"], n["remote_branch"])
-            args = (["git", "branch", "-q", "--track",  n["local_branch"], n["remote_branch"]])
+            if state.status == BranchSyncStatus.NEW_LOCAL:
+                print(state.status, state.local_branch, state.remote_branch)
+                args = ["git", "branch", "-q", "--track", state.local_branch, state.remote_branch]
+                subprocess_run(args, check=True, dry_run=dry_run)
+
+            elif state.status == BranchSyncStatus.REMOTE_MODIFIED:
+                print("Switching", state.status, state.local_branch, "to", state.remote_branch)
+                args = ["git", "checkout", "-q", state.local_branch]
+                subprocess_run(args, check=True, dry_run=dry_run)
+                args = ["git", "reset", "-q", "--hard", state.remote_branch]
+                subprocess_run(args, check=True, dry_run=dry_run)
+
+            elif state.status == BranchSyncStatus.LOCAL_MODIFIED:
+                print(state.status, state.local_branch, "ahead of", state.remote_branch, "=", state.local_reflog)
+
+            else:
+                print(state.status, state.local_branch, state.remote_branch)
+
+def sync_remote(*, pattern, main,  upstream, verbose=False, dry_run=False):
+        fetch(upstream=upstream, dry_run=dry_run)
+
+        force_pushes = []
+        last_status = None
+        for state in sorted(branch_sync_state(pattern=pattern, main=main, upstream=upstream)):
+            if last_status != state.status:
+                if verbose:
+                    print()
+                last_status = state.status
+
+            if state.status == BranchSyncStatus.LOCAL_MODIFIED:
+                if verbose:
+                    print("Will push", state.local_branch, "ahead of", state.remote_branch, "=", state.local_reflog)
+                force_pushes.append(state.local_branch)
+            else:
+                if verbose:
+                    print(state.status, state.local_branch, state.remote_branch)
+
+        if force_pushes:
+            args = (["git", "push", upstream, "-f"] + force_pushes)
             subprocess_run(args, check=True, dry_run=dry_run)
-
-        if stale:
-            print()
-        for s in stale:
-            print("Switching ", s["local_branch"], "to", s["remote_branch"])
-            args = (["git", "checkout", "-q", s["local_branch"]])
-            subprocess_run(args, check=True, dry_run=dry_run)
-            args = (["git", "reset", "-q", "--hard", s["remote_branch"]])
-            subprocess_run(args, check=True, dry_run=dry_run)
-
-        if modified:
-            print()
-        for m in modified:
-            print("Locally modified ", m["local_branch"], "ahead of", m["remote_branch"], "=", m["result"])
+        else:
+            print("Nothing to do")
