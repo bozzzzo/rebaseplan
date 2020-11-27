@@ -162,8 +162,9 @@ def rebaseplan(*, pattern,
                                                   main=main,
                                                   reflog_depth=reflog_depth)
     args = (view(optional_log_flags)
-            + [f"^{main}^", f"^{upstream}/{main}^"]
+            + [f"^{main}^", f"^{main}@{{u}}^"]
             + branches
+            + ["--"]
             )
     run(args, check=True)
 
