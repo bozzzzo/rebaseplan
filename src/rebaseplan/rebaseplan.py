@@ -370,7 +370,7 @@ def sync_remote(*, pattern, main,  upstream, verbose=False, dry_run=False):
                     print("Will push", state.local_branch, "ahead of", state.remote_branch, "=", state.local_reflog)
                 force_pushes.append(state.local_branch)
             else:
-                if verbose:
+                if verbose or state.status in (BranchSyncStatus.CONFLICTED, BranchSyncStatus.REMOTE_MODIFIED):
                     print(state.status, state.local_branch, state.remote_branch)
 
         if force_pushes:
