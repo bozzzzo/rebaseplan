@@ -64,7 +64,7 @@ def list_branches(*, pattern, branch_flags):
 
 def head_reflog(branch, n):
     cmd = subprocess_run(
-        ["git", "reflog", "show", branch],
+        ["git", "reflog", "show", branch, "--"],
         text=True, capture_output=True, check=True)
     yield branch
     for ref in cmd.stdout.splitlines()[1:n]:
